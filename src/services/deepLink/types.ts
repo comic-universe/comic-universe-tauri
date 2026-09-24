@@ -12,6 +12,10 @@ export interface PluginSourceMetadata {
   isDefault?: boolean
 }
 
+export interface PluginFeatureFlags {
+  onDemandPageList?: boolean
+}
+
 export interface PluginMetadataResponse {
   name?: string
   tag?: string
@@ -19,6 +23,7 @@ export interface PluginMetadataResponse {
   contentTypes?: string[]
   languageCodes?: string[]
   capabilities?: string[] | { metadata?: boolean; content?: boolean }
+  features?: PluginFeatureFlags
   sources?: PluginSourceMetadata[]
 }
 

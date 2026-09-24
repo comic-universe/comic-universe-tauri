@@ -1,5 +1,6 @@
 import {
   HorizontalReader,
+  LoadingOverlay,
   ReaderBottomBar,
   ReaderOverlayControls,
   ReaderTopBar,
@@ -18,10 +19,14 @@ export const Reader: FC = () => {
     isResolvingPages,
     comicName,
     chapterName,
+    currentChapterAvailableLanguages,
+    selectedChapterLanguage,
+    autoLanguageMode,
     readingMode,
     readingDirection,
     canUseDoublePageSpread,
     isMobileViewport,
+    setChapterLanguageModeAndPersist,
     setReadingModeAndPersist,
     setReadingDirectionAndPersist,
     setDoublePageSpreadAndPersist,
@@ -63,10 +68,14 @@ export const Reader: FC = () => {
         <ReaderTopBar
           comicName={comicName}
           chapterName={chapterName}
+          currentChapterAvailableLanguages={currentChapterAvailableLanguages}
+          selectedChapterLanguage={selectedChapterLanguage}
+          autoLanguageMode={autoLanguageMode}
           readingMode={readingMode}
           readingDirection={readingDirection}
           doublePageSpread={canUseDoublePageSpread}
           disableDoublePageSpread={isMobileViewport}
+          onSelectChapterLanguage={(language) => void setChapterLanguageModeAndPersist(language)}
           onSetReadingMode={(vertical) => void setReadingModeAndPersist(vertical)}
           onSetReadingDirection={(rtl) => void setReadingDirectionAndPersist(rtl)}
           onSetDoublePageSpread={(enabled) => void setDoublePageSpreadAndPersist(enabled)}
@@ -77,10 +86,14 @@ export const Reader: FC = () => {
           <ReaderTopBar
             comicName={comicName}
             chapterName={chapterName}
+            currentChapterAvailableLanguages={currentChapterAvailableLanguages}
+            selectedChapterLanguage={selectedChapterLanguage}
+            autoLanguageMode={autoLanguageMode}
             readingMode={readingMode}
             readingDirection={readingDirection}
             doublePageSpread={canUseDoublePageSpread}
             disableDoublePageSpread={isMobileViewport}
+            onSelectChapterLanguage={(language) => void setChapterLanguageModeAndPersist(language)}
             onSetReadingMode={(vertical) => void setReadingModeAndPersist(vertical)}
             onSetReadingDirection={(rtl) => void setReadingDirectionAndPersist(rtl)}
             onSetDoublePageSpread={(enabled) => void setDoublePageSpreadAndPersist(enabled)}
@@ -98,18 +111,17 @@ export const Reader: FC = () => {
           setZoomVisible((current) => !current)
         }}
       >
+        <LoadingOverlay
+          isLoading={chapterPagesQuery.isLoading || isResolvingPages}
+          message={t('reader.loadingPages')}
+        />
+
         {canUseCustomZoom ? (
           <ReaderZoomWindow
             containerRef={mainContainerRef}
             visible={zoomVisible}
             imageKey={currentZoomImageKey}
           />
-        ) : null}
-
-        {(chapterPagesQuery.isLoading || isResolvingPages) ? (
-          <div className="grid h-full place-items-center text-sm text-foreground/70">
-            {t('reader.loadingPages')}
-          </div>
         ) : null}
 
         {chapterPagesQuery.isError && !externalChapterUrl ? (

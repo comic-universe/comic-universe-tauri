@@ -19,11 +19,13 @@ interface MainContentChapterTableProps {
   entityId: string
   chapters: Array<ResolvedChapterRecord>
   progressByChapterId: Map<string, number>
+  pendingOfflineChapterIds: Set<string>
   selectedIds: Set<string>
   setSelectedIds: Dispatch<SetStateAction<Set<string>>>
   isSelectionMode: boolean
   onExitSelectionMode: () => void
   onOpenChapter: (chapterId: string) => void
+  onMakeSelectedOffline: (chapterIds: string[]) => void | Promise<void>
 }
 
 const INITIAL_VISIBLE_ROWS = 80
@@ -41,11 +43,13 @@ export const MainContentChapterTable = ({
   entityId,
   chapters,
   progressByChapterId,
+  pendingOfflineChapterIds,
   selectedIds,
   setSelectedIds,
   isSelectionMode,
   onExitSelectionMode,
-  onOpenChapter
+  onOpenChapter,
+  onMakeSelectedOffline
 }: MainContentChapterTableProps) => {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -55,8 +59,8 @@ export const MainContentChapterTable = ({
   const [isMobileViewport, setIsMobileViewport] = useState(false)
 
   const rows = useMemo<ChapterRowModel[]>(
-    () => chapters.map((chapter) => mapChapterToRow(chapter, progressByChapterId)),
-    [chapters, progressByChapterId]
+    () => chapters.map((chapter) => mapChapterToRow(chapter, progressByChapterId, pendingOfflineChapterIds)),
+    [chapters, progressByChapterId, pendingOfflineChapterIds]
   )
 
   const selectedIdList = useMemo(() => Array.from(selectedIds), [selectedIds])
@@ -196,23 +200,32 @@ export const MainContentChapterTable = ({
 
   const handleRowClick = useCallback(
     (event: MouseEvent<HTMLTableRowElement>, chapterId: string) => {
-      if (!isMobileViewport || isSelectionMode) return
-
       const target = event.target as HTMLElement
       if (target.closest('button, a, input, label, [role="button"], [role="checkbox"]')) return
 
+      if (isSelectionMode) {
+        setSelectedIds((current) => {
+          const next = new Set(current)
+          if (next.has(chapterId)) next.delete(chapterId)
+          else next.add(chapterId)
+          return next
+        })
+        return
+      }
+
+      if (!isMobileViewport) return
       onOpenChapter(chapterId)
     },
-    [isMobileViewport, isSelectionMode, onOpenChapter]
+    [isMobileViewport, isSelectionMode, onOpenChapter, setSelectedIds]
   )
 
   return (
     <div className="min-h-0 overflow-auto" onScroll={onContainerScroll}>
       <div
         className={cn(
-          'overflow-hidden transition-all duration-250 ease-out',
+          'sticky top-0 z-20 overflow-hidden transition-all duration-250 ease-out',
           hasSelection
-            ? 'mb-px max-h-20 translate-y-0 opacity-100'
+            ? 'max-h-20 translate-y-0 opacity-100'
             : 'max-h-0 -translate-y-1 opacity-0 pointer-events-none'
         )}
       >
@@ -223,13 +236,14 @@ export const MainContentChapterTable = ({
             setSelectedIds(new Set())
             onExitSelectionMode()
           }}
+          makeSelectedOffline={() => void onMakeSelectedOffline(selectedIdList)}
           markSelectedRead={() => void runBulkReadStateUpdate(true)}
           markSelectedUnread={() => void runBulkReadStateUpdate(false)}
           t={t}
         />
       </div>
 
-      <Table className="table-fixed border-separate border-spacing-[1px] bg-transparent">
+      <Table className="table-fixed border-separate border-spacing-x-[1px] border-spacing-y-0 bg-transparent">
         <TableHeader className="[&_tr]:border-0">
           {table.getHeaderGroups().map((headerGroup) => (
             <TableRow key={headerGroup.id} className="border-0 bg-transparent hover:bg-transparent">
@@ -238,7 +252,7 @@ export const MainContentChapterTable = ({
                   key={header.id}
                   style={{ width: header.getSize() !== 150 ? header.getSize() : undefined }}
                   className={cn(
-                    'h-10 border-0 bg-background px-1 transition-all duration-200',
+                    'h-10 border-0 border-b border-border/40 bg-background px-1 transition-all duration-200',
                     header.column.id === 'select' && !showSelectionColumn ? 'w-0 px-0' : '',
                     header.column.id === 'progress' ? 'text-right' : ''
                   )}
@@ -261,8 +275,22 @@ export const MainContentChapterTable = ({
                   data-state={isSelected ? 'selected' : undefined}
                   className="group border-0 bg-transparent hover:bg-transparent data-[state=selected]:bg-transparent"
                   onClick={(event) => handleRowClick(event, row.original.id)}
-                  onDoubleClick={() => onOpenChapter(row.original.id)}
+                  onDoubleClick={() => {
+                    if (isSelectionMode) return
+                    onOpenChapter(row.original.id)
+                  }}
                   onKeyDown={(event) => {
+                    if (event.key !== 'Enter' && event.key !== ' ') return
+                    event.preventDefault()
+                    if (isSelectionMode) {
+                      setSelectedIds((current) => {
+                        const next = new Set(current)
+                        if (next.has(row.original.id)) next.delete(row.original.id)
+                        else next.add(row.original.id)
+                        return next
+                      })
+                      return
+                    }
                     if (event.key === 'Enter') {
                       event.preventDefault()
                       onOpenChapter(row.original.id)

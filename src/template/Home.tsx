@@ -14,7 +14,6 @@ import { LeftList, LeftNav, MainContent, TopBar } from 'components'
 
 export const Home: FC = () => {
   const { t } = useTranslation()
-  const [selectedWorkId, setSelectedWorkId] = useState<string | null>(null)
   const [isMobileListVisible, setMobileListVisible] = useState(false)
   const account = useAppStore((state) => state.account)
   const accountHydrated = useAppStore((state) => state.accountHydrated)
@@ -23,12 +22,15 @@ export const Home: FC = () => {
   const logout = useAppStore((state) => state.logout)
   const isMobileListOpen = useAppStore((state) => state.isMobileListOpen)
   const setMobileListOpen = useAppStore((state) => state.setMobileListOpen)
+  const selectedWorkId = useAppStore((state) => state.selectedWorkId)
+  const setSelectedWorkId = useAppStore((state) => state.setSelectedWorkId)
   const openWindow = useOpenWindow()
   const apiHealthQuery = useApiHealthQuery()
   const accountSessionQuery = useAccountSessionQuery()
   const { mutate: saveAccountSession } = useSaveAccountSessionMutation()
   const { mutate: clearAccountSession } = useClearAccountSessionMutation()
   const renewTokenMutation = useWebsiteGenerateAppTokenMutation()
+  const loginWindowRequestedRef = useRef(false)
   const shouldRenewFromExpiry = (() => {
     if (!account?.expiresAt) return false
     const expiresAtMs = Date.parse(account.expiresAt)
@@ -44,10 +46,17 @@ export const Home: FC = () => {
   const mobileListAnimationMs = 200
 
   const openLoginWindow = useCallback(() => {
+    loginWindowRequestedRef.current = true
     openWindow({
       component: 'LoginWindow'
     })
   }, [openWindow])
+
+  useEffect(() => {
+    if (account) {
+      loginWindowRequestedRef.current = false
+    }
+  }, [account])
 
   useEffect(() => {
     if (!accountHydrated && apiHealthQuery.isSuccess && accountSessionQuery.isSuccess) {
@@ -141,7 +150,7 @@ export const Home: FC = () => {
       }
     }
 
-    if (!account) {
+    if (!account && !loginWindowRequestedRef.current) {
       openFrame = window.requestAnimationFrame(() => {
         if (!cancelled) {
           openLoginWindow()
@@ -184,11 +193,13 @@ export const Home: FC = () => {
         } catch {
           logout()
           clearAccountSession()
-          openFrame = window.requestAnimationFrame(() => {
-            if (!cancelled) {
-              openLoginWindow()
-            }
-          })
+          if (!loginWindowRequestedRef.current) {
+            openFrame = window.requestAnimationFrame(() => {
+              if (!cancelled) {
+                openLoginWindow()
+              }
+            })
+          }
         } finally {
           renewingTokenRef.current = false
         }

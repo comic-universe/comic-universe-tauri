@@ -7,6 +7,7 @@ interface MainContentChapterTableBulkActionsProps {
   clearSelection: () => void
   markSelectedRead: () => void
   markSelectedUnread: () => void
+  makeSelectedOffline: () => void
   t: (key: string, options?: Record<string, unknown>) => string
 }
 
@@ -16,15 +17,26 @@ export const MainContentChapterTableBulkActions: FC<MainContentChapterTableBulkA
   clearSelection,
   markSelectedRead,
   markSelectedUnread,
+  makeSelectedOffline,
   t
 }) => {
   return (
-    <div className="animate-in fade-in-0 slide-in-from-top-1 mt-px mb-px flex items-center gap-2 bg-background p-2 duration-200">
+    <div className="animate-in fade-in-0 slide-in-from-top-1 sticky top-0 z-20 flex items-center gap-2 border-b border-border/40 bg-background p-2 duration-200">
       <div className="text-xs text-muted-foreground">
         {t('mainContent.chapterTable.bulk.selectedCount', { count: selectedCount })}
       </div>
-      <Button type="button" size="sm" variant="ghost" className="h-8 px-2" onClick={clearSelection}>
+      <Button type="button" size="sm" variant="ghost" className="h-8 px-2" onClick={clearSelection} disabled={isUpdating}>
         {t('mainContent.chapterTable.bulk.clear')}
+      </Button>
+      <Button
+        type="button"
+        size="sm"
+        variant="ghost"
+        className="h-8 px-2"
+        onClick={makeSelectedOffline}
+        disabled={false}
+      >
+        {t('mainContent.chapterTable.bulk.makeOffline')}
       </Button>
       <Button
         type="button"

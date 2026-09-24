@@ -148,8 +148,20 @@
         "selectedCount_one": "{{count}} seleccionado",
         "selectedCount_other": "{{count}} seleccionados",
         "clear": "Limpiar",
+        "makeOffline": "Disponible offline",
+        "makingOffline": "Descargando...",
+        "makeOfflineSuccessTitle": "Descarga offline completada",
+        "makeOfflineSuccessDescription": "{{downloaded}} descargados, {{skipped}} omitidos, {{failed}} fallaron",
+        "makeOfflineErrorTitle": "Falló la descarga offline",
+        "makeOfflineErrorDescription": "No se pudieron descargar los capítulos seleccionados",
+        "makeOfflinePartialErrorTitle": "Algunas descargas offline fallaron",
+        "makeOfflinePartialErrorDescription": "{{failed}} capítulos no se pudieron descargar",
         "markRead": "Marcar leído",
         "markUnread": "Marcar no leído"
+      },
+      "labels": {
+        "offline": "Disponible sin conexión",
+        "offlineDownloading": "Descargando offline"
       },
       "mobile": {
         "selectChapters": "Seleccionar",
@@ -159,6 +171,12 @@
     }
   },
   "mainContent.nav.actions.read": "Seguir leyendo",
+  "mainContent.nav.actions.refreshChapters": "Buscar capítulos nuevos",
+  "mainContent.nav.actions.linkMetadata": "Vincular fuente de metadatos",
+  "mainContent.nav.refresh.successTitle": "Actualización de capítulos completada",
+  "mainContent.nav.refresh.successDescription": "{{addedChapters}} capítulos nuevos agregados tras revisar {{sourcesChecked}} fuentes ({{sourcesUpdated}} actualizadas)",
+  "mainContent.nav.refresh.errorTitle": "Falló la actualización de capítulos",
+  "mainContent.nav.refresh.errorDescription": "No se pudieron buscar capítulos nuevos para este cómic",
   "reader": {
     "back": "Volver",
     "close": "Cerrar lector",
@@ -179,7 +197,8 @@
   "searchContent": {
     "plugins": {
       "title": "Plugins",
-      "subtitle": "Selecciona las fuentes para buscar"
+      "subtitle": "Selecciona las fuentes para buscar",
+      "linkingSubtitle": "Vinculando datos en {{title}}"
     },
     "search": {
       "placeholder": "Buscar cómics, manga o títulos...",
@@ -194,6 +213,9 @@
       "add": "Agregar a la base de datos",
       "adding": "Agregando...",
       "added": "Agregado",
+      "linkToCurrent": "Vincular al cómic actual",
+      "linking": "Vinculando...",
+      "linked": "Vinculado",
       "expandResult": "Expandir resultado",
       "collapseResult": "Contraer resultado"
     },

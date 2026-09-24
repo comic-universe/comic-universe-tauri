@@ -1,7 +1,11 @@
+pub mod library;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{error::Error, fmt};
 use utoipa::ToSchema;
+
+pub use library::*;
 
 #[derive(Serialize, Deserialize, Clone, ToSchema)]
 pub struct DbRecord {

@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;
 
+use crate::domain::{ComicMetadata, LibraryListItem};
+
 #[derive(Clone, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiEndpointPayload {
@@ -65,6 +67,20 @@ pub struct ChapterPagesResponse {
     pub pages: Vec<ChapterPage>,
 }
 
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryComicListResponse {
+    #[serde(flatten)]
+    pub item: LibraryListItem,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryComicResponse {
+    #[serde(flatten)]
+    pub metadata: ComicMetadata,
+}
+
 #[derive(Deserialize, Default, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct MigrateLegacyBody {
@@ -103,6 +119,7 @@ pub struct ImportComicBody {
 #[derive(Deserialize, Default, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportComicData {
+    pub target_comic_id: Option<String>,
     #[serde(default)]
     pub comic: Value,
     #[serde(default)]
@@ -115,4 +132,40 @@ pub struct ImportComicResponse {
     pub comic_id: String,
     pub chapters_imported: usize,
     pub chapters_skipped: usize,
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveVariantPagesBody {
+    pub variant_id: String,
+    pub canonical_chapter_id: Option<String>,
+    pub plugin_id: Option<String>,
+    pub plugin_tag: Option<String>,
+    pub plugin_name: Option<String>,
+    pub chapter_site_id: Option<String>,
+    pub chapter_site_url: Option<String>,
+    pub language: Option<String>,
+    #[serde(default)]
+    pub language_codes: Vec<String>,
+    pub name: Option<String>,
+    #[serde(default)]
+    pub pages: Vec<crate::domain::ComicPage>,
+    #[serde(default)]
+    pub source_data: Value,
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadOfflineChaptersBody {
+    pub variant_ids: Vec<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadOfflineChaptersResponse {
+    pub comic_id: String,
+    pub requested: usize,
+    pub downloaded: usize,
+    pub skipped: usize,
+    pub failed: usize,
 }

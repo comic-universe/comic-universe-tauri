@@ -1,19 +1,32 @@
 import { ComponentProps, FC, useDeferredValue, useEffect, useMemo, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { useOpenWindow } from '@pablovsouza/react-window-manager'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import i18n from 'i18n'
 import { BgBox } from 'components'
 import {
+  buildComicChapterGraph,
+  type ComicMetadata,
   type CanonicalChapterData,
   type ChapterMappingData,
   type ChapterVariantData,
+  type DbRecord,
+  getComicCoverUrl,
+  type LibraryListItem,
+  mapComicMetadataToWorkRecord,
+  restQueryKeys,
   type WorkData,
   resolveChapterVariants,
+  useDownloadLibraryChaptersOfflineMutation,
+  useDbUpsertMutation,
   useDbFindQuery,
   useDbListQuery,
-  useDbUpsertMutation
+  useLibraryComicQuery
 } from 'services'
 import { cn } from 'utils'
+import { listInstalledPlugins, refreshComicChaptersFromSources, type PluginRecordData } from 'windows/SearchContentWindow/pluginApi'
 import { MainContentHeader } from './MainContentHeader'
 import { MainContentNav } from './MainContentNav'
 import { MainContentChapterTable } from './MainContentChapterTable'
@@ -57,11 +70,10 @@ interface ReadProgressData {
   [key: string]: unknown
 }
 
-const chapterLanguageModeFromSettings = (work?: { data?: WorkData } | null): string => {
-  const settings = work?.data?.settings as Record<string, unknown> | undefined
-  const raw = typeof settings?.chapterLanguageMode === 'string' ? settings.chapterLanguageMode : ''
-  if (raw.trim() === AUTO_LANGUAGE_MODE) return AUTO_LANGUAGE_MODE
-  return normalizeLanguageCode(raw) || AUTO_LANGUAGE_MODE
+interface ComicPreferencesData {
+  scopeId?: string
+  chapterLanguageMode?: string
+  [key: string]: unknown
 }
 
 const progressPercentFromReadProgress = (readProgress?: ReadProgressData): number => {
@@ -73,36 +85,30 @@ const progressPercentFromReadProgress = (readProgress?: ReadProgressData): numbe
   return Math.max(0, Math.min(100, Math.round((safePage / totalPages) * 100)))
 }
 
+const hasOfflineFile = (offline: { available?: boolean | null; cbzFile?: string | null } | null | undefined) => {
+  return offline?.available === true || (typeof offline?.cbzFile === 'string' && offline.cbzFile.trim().length > 0)
+}
+
 export const MainContent: FC<MainContentProps> = ({
   className,
   selectedWorkId,
   ...props
 }) => {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const openWindow = useOpenWindow()
   const navigate = useNavigate()
-  const worksQuery = useDbListQuery<WorkData>('works', 500, 0)
-  const upsertWorkMutation = useDbUpsertMutation<WorkData>()
-  const canonicalChaptersQuery = useDbFindQuery<CanonicalChapterData>(
-    'canonical_chapters',
-    'workId',
+  const comicQuery = useLibraryComicQuery(selectedWorkId)
+  const comicPreferencesQuery = useDbFindQuery<ComicPreferencesData>(
+    'app_state',
+    'scopeId',
     selectedWorkId ?? '',
-    5000,
+    1,
     Boolean(selectedWorkId)
   )
-  const chapterVariantsQuery = useDbFindQuery<ChapterVariantData>(
-    'chapter_variants',
-    'workId',
-    selectedWorkId ?? '',
-    5000,
-    Boolean(selectedWorkId)
-  )
-  const chapterMappingsQuery = useDbFindQuery<ChapterMappingData>(
-    'chapter_mappings',
-    'workId',
-    selectedWorkId ?? '',
-    5000,
-    Boolean(selectedWorkId)
-  )
+  const upsertAppStateMutation = useDbUpsertMutation<ComicPreferencesData>()
+  const downloadOfflineMutation = useDownloadLibraryChaptersOfflineMutation()
+  const pluginsQuery = useDbListQuery<PluginRecordData>('plugins', 500, 0)
   const readProgressQuery = useDbFindQuery<ReadProgressData>(
     'read_progress',
     'comicId',
@@ -111,17 +117,35 @@ export const MainContent: FC<MainContentProps> = ({
     Boolean(selectedWorkId)
   )
   const [selectedChapterIds, setSelectedChapterIds] = useState<Set<string>>(new Set())
+  const [pendingOfflineChapterIds, setPendingOfflineChapterIds] = useState<Set<string>>(new Set())
   const [isSelectionMode, setIsSelectionMode] = useState(false)
   const [selectedChapterLanguage, setSelectedChapterLanguage] = useState<string>(AUTO_LANGUAGE_MODE)
+  const [isRefreshingChapters, setIsRefreshingChapters] = useState(false)
+
+  const chapterGraph = useMemo(() => {
+    if (!comicQuery.data) {
+      return {
+        work: null,
+        canonicalChapters: [] as Array<DbRecord<CanonicalChapterData>>,
+        chapterVariants: [] as Array<DbRecord<ChapterVariantData>>,
+        chapterMappings: [] as Array<DbRecord<ChapterMappingData>>
+      }
+    }
+    return buildComicChapterGraph(comicQuery.data)
+  }, [comicQuery.data])
 
   const selectedWork = useMemo(
-    () => worksQuery.data?.find((work) => work.id === selectedWorkId) ?? null,
-    [worksQuery.data, selectedWorkId]
+    () => (comicQuery.data ? mapComicMetadataToWorkRecord(comicQuery.data) : null),
+    [comicQuery.data]
+  )
+  const installedPlugins = useMemo(
+    () => listInstalledPlugins(pluginsQuery.data ?? []).filter((plugin) => plugin.enabled),
+    [pluginsQuery.data]
   )
 
   const availableChapterLanguages = useMemo(() => {
     const languages = new Set<string>()
-    for (const variant of chapterVariantsQuery.data ?? []) {
+    for (const variant of chapterGraph.chapterVariants) {
       const raw = Array.isArray(variant.data.languageCodes) ? variant.data.languageCodes : []
       for (const entry of raw) {
         const normalized = normalizeLanguageCode(entry)
@@ -131,59 +155,66 @@ export const MainContent: FC<MainContentProps> = ({
       if (direct) languages.add(direct)
     }
     return [...languages].sort((left, right) => left.localeCompare(right))
-  }, [chapterVariantsQuery.data])
+  }, [chapterGraph.chapterVariants])
 
   useEffect(() => {
-    const savedMode = chapterLanguageModeFromSettings(selectedWork)
-    const savedLanguageAvailable =
-      savedMode === AUTO_LANGUAGE_MODE || availableChapterLanguages.includes(savedMode)
-
+    const savedMode = comicPreferencesQuery.data?.[0]?.data.chapterLanguageMode
+    const normalizedSaved =
+      typeof savedMode === 'string' && savedMode.trim() ? normalizeLanguageCode(savedMode) : AUTO_LANGUAGE_MODE
     if (availableChapterLanguages.length <= 1) {
-      const onlyLanguage = availableChapterLanguages[0]
-      if (onlyLanguage) {
-        setSelectedChapterLanguage(savedLanguageAvailable && savedMode !== AUTO_LANGUAGE_MODE ? savedMode : onlyLanguage)
-        return
-      }
-
-      setSelectedChapterLanguage(AUTO_LANGUAGE_MODE)
+      setSelectedChapterLanguage(
+        normalizedSaved !== AUTO_LANGUAGE_MODE && availableChapterLanguages.includes(normalizedSaved)
+          ? normalizedSaved
+          : availableChapterLanguages[0] ?? AUTO_LANGUAGE_MODE
+      )
       return
     }
 
     setSelectedChapterLanguage(() => {
-      if (savedLanguageAvailable) {
-        return savedMode
+      if (normalizedSaved !== AUTO_LANGUAGE_MODE && availableChapterLanguages.includes(normalizedSaved)) {
+        return normalizedSaved
       }
       return AUTO_LANGUAGE_MODE
     })
-  }, [availableChapterLanguages, selectedWork, selectedWorkId])
+  }, [availableChapterLanguages, comicPreferencesQuery.data, selectedWorkId])
 
   const handleSelectChapterLanguage = (nextLanguage: string) => {
     setSelectedChapterLanguage(nextLanguage)
-
-    if (!selectedWork) return
-
-    const savedMode = chapterLanguageModeFromSettings(selectedWork)
+    if (!selectedWorkId) return
     const nextMode =
       nextLanguage && nextLanguage !== AUTO_LANGUAGE_MODE
         ? normalizeLanguageCode(nextLanguage)
         : AUTO_LANGUAGE_MODE
-
-    if (savedMode === nextMode) return
-
-    void upsertWorkMutation
-      .mutateAsync({
-        table: 'works',
-        id: selectedWork.id,
+    const queryKey = restQueryKeys.dbFind('app_state', 'scopeId', selectedWorkId, 1)
+    const previous = queryClient.getQueryData<Array<DbRecord<ComicPreferencesData>>>(queryKey)
+    queryClient.setQueryData<Array<DbRecord<ComicPreferencesData>>>(queryKey, [
+      {
+        id: `comic-preferences:${selectedWorkId}`,
+        created_at: previous?.[0]?.created_at ?? '',
+        updated_at: previous?.[0]?.updated_at ?? '',
         data: {
-          ...(selectedWork.data as WorkData),
-          settings: {
-            ...(selectedWork.data.settings as Record<string, unknown> | undefined),
-            chapterLanguageMode: nextMode
-          }
+          ...(previous?.[0]?.data ?? {}),
+          scopeId: selectedWorkId,
+          chapterLanguageMode: nextMode
         }
-      })
-      .then(() => {
-        void worksQuery.refetch()
+      }
+    ])
+
+    void upsertAppStateMutation.mutateAsync({
+      table: 'app_state',
+      id: `comic-preferences:${selectedWorkId}`,
+      data: {
+        scopeId: selectedWorkId,
+        chapterLanguageMode: nextMode
+      }
+    })
+      .then(() =>
+        queryClient.invalidateQueries({
+          queryKey
+        })
+      )
+      .catch(() => {
+        queryClient.setQueryData(queryKey, previous)
       })
   }
 
@@ -207,17 +238,17 @@ export const MainContent: FC<MainContentProps> = ({
   const chapters = useMemo(
     () =>
       resolveChapterVariants(
-        canonicalChaptersQuery.data ?? [],
-        chapterMappingsQuery.data ?? [],
-        chapterVariantsQuery.data ?? [],
+        chapterGraph.canonicalChapters,
+        chapterGraph.chapterMappings,
+        chapterGraph.chapterVariants,
         chapterLanguagePriority,
         strictLanguageFilter
       ),
     [
-      canonicalChaptersQuery.data,
+      chapterGraph.canonicalChapters,
       chapterLanguagePriority,
-      chapterMappingsQuery.data,
-      chapterVariantsQuery.data,
+      chapterGraph.chapterMappings,
+      chapterGraph.chapterVariants,
       strictLanguageFilter
     ]
   )
@@ -227,7 +258,7 @@ export const MainContent: FC<MainContentProps> = ({
   }, [selectedWork?.data?.chapterCount])
 
   const chaptersWithFallback = useMemo(() => {
-    const hasImportedVariants = (chapterVariantsQuery.data?.length ?? 0) > 0
+    const hasImportedVariants = chapterGraph.chapterVariants.length > 0
     if (chapters.length > 0 || !selectedWorkId || chapterCountHint <= 0 || hasImportedVariants) return chapters
 
     return Array.from({ length: chapterCountHint }, (_, index) => {
@@ -245,7 +276,7 @@ export const MainContent: FC<MainContentProps> = ({
         }
       }
     })
-  }, [chapterCountHint, chapterVariantsQuery.data?.length, chapters, selectedWorkId, t])
+  }, [chapterCountHint, chapterGraph.chapterVariants.length, chapters, selectedWorkId, t])
   const deferredChapters = useDeferredValue(chaptersWithFallback)
   const hasSelectedChapters = selectedChapterIds.size > 0
 
@@ -280,6 +311,19 @@ export const MainContent: FC<MainContentProps> = ({
 
     return lastChapterWithProgress?.id ?? deferredChapters[0]?.id ?? null
   }, [deferredChapters, progressForChapter])
+  const chapterVariantIdByResolvedId = useMemo(
+    () =>
+      new Map(
+        deferredChapters.map((chapter) => {
+          const chapterData = chapter.data as Record<string, unknown>
+          return [
+            chapter.id,
+            typeof chapterData.variantChapterId === 'string' ? chapterData.variantChapterId : ''
+          ] as const
+        })
+      ),
+    [deferredChapters]
+  )
 
   const totalProgress = useMemo(() => {
     if (!deferredChapters.length) return 0
@@ -293,6 +337,7 @@ export const MainContent: FC<MainContentProps> = ({
   useEffect(() => {
     setSelectedChapterIds(new Set())
     setIsSelectionMode(false)
+    setPendingOfflineChapterIds(new Set())
   }, [selectedWorkId])
 
   if (!selectedWorkId) {
@@ -310,8 +355,163 @@ export const MainContent: FC<MainContentProps> = ({
   const publisher = normalizeText(workData.publisher)
   const status = normalizeText(workData.status) || t('mainContent.unknownStatus')
   const synopsis = normalizeText(workData.description) || normalizeText(workData.synopsis)
-  const coverUrl = normalizeText(workData.cover)
+  const coverUrl = selectedWorkId ? getComicCoverUrl(selectedWorkId) : normalizeText(workData.cover)
   const showSelectionMode = isSelectionMode || hasSelectedChapters
+  const handleMakeSelectedOffline = async (chapterIds: string[]) => {
+    if (!selectedWorkId || !chapterIds.length) return
+
+    const variantIds = Array.from(
+      new Set(
+        chapterIds
+          .map((chapterId) => chapterVariantIdByResolvedId.get(chapterId) ?? '')
+          .filter((value) => value.trim().length > 0)
+      )
+    )
+    if (!variantIds.length) return
+
+    const targetChapterIds = [...chapterIds]
+    setPendingOfflineChapterIds((current) => {
+      const next = new Set(current)
+      targetChapterIds.forEach((chapterId) => next.add(chapterId))
+      return next
+    })
+    setSelectedChapterIds(new Set())
+    setIsSelectionMode(false)
+
+    try {
+      const result = await downloadOfflineMutation.mutateAsync({
+        comicId: selectedWorkId,
+        payload: { variantIds }
+      })
+
+      queryClient.setQueryData<ComicMetadata | undefined>(
+        restQueryKeys.libraryComic(selectedWorkId),
+        (current) => {
+          if (!current) return current
+
+          let nextOfflineCount = 0
+          const nextChapters = current.chapters.map((chapter) => {
+            let chapterHasOffline = false
+            const nextVariants = chapter.variants.map((variant) => {
+              if (!variantIds.includes(variant.id)) {
+                if (hasOfflineFile(variant.offline)) chapterHasOffline = true
+                return variant
+              }
+
+              const nextVariant = {
+                ...variant,
+                offline: {
+                  ...(variant.offline ?? {}),
+                  available: true
+                }
+              }
+              if (hasOfflineFile(nextVariant.offline)) chapterHasOffline = true
+              return nextVariant
+            })
+
+            if (!chapterHasOffline) {
+              chapterHasOffline = nextVariants.some((variant) => hasOfflineFile(variant.offline))
+            }
+            if (chapterHasOffline) nextOfflineCount += 1
+
+            return {
+              ...chapter,
+              variants: nextVariants
+            }
+          })
+
+          queryClient.setQueryData<LibraryListItem[] | undefined>(restQueryKeys.library, (items) => {
+            if (!items) return items
+            return items.map((item) =>
+              item.comicId === selectedWorkId
+                ? {
+                    ...item,
+                    offlineChapterCount: nextOfflineCount
+                  }
+                : item
+            )
+          })
+
+          return {
+            ...current,
+            chapters: nextChapters
+          }
+        }
+      )
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: restQueryKeys.library }),
+        queryClient.invalidateQueries({ queryKey: restQueryKeys.libraryComic(selectedWorkId) })
+      ])
+      setPendingOfflineChapterIds((current) => {
+        const next = new Set(current)
+        targetChapterIds.forEach((chapterId) => next.delete(chapterId))
+        return next
+      })
+
+      toast.success(t('mainContent.chapterTable.bulk.makeOfflineSuccessTitle'), {
+        description: t('mainContent.chapterTable.bulk.makeOfflineSuccessDescription', {
+          downloaded: result.downloaded,
+          skipped: result.skipped,
+          failed: result.failed
+        })
+      })
+      if (result.failed > 0) {
+        toast.error(t('mainContent.chapterTable.bulk.makeOfflinePartialErrorTitle'), {
+          description: t('mainContent.chapterTable.bulk.makeOfflinePartialErrorDescription', {
+            failed: result.failed
+          })
+        })
+      }
+    } catch (error) {
+      setPendingOfflineChapterIds((current) => {
+        const next = new Set(current)
+        targetChapterIds.forEach((chapterId) => next.delete(chapterId))
+        return next
+      })
+      const description =
+        error instanceof Error && error.message.trim().length > 0
+          ? error.message
+          : t('mainContent.chapterTable.bulk.makeOfflineErrorDescription')
+      toast.error(t('mainContent.chapterTable.bulk.makeOfflineErrorTitle'), {
+        description
+      })
+    }
+  }
+
+  const handleRefreshChapters = async () => {
+    if (!comicQuery.data || isRefreshingChapters) return
+
+    setIsRefreshingChapters(true)
+    const previousChapterCount = comicQuery.data.chapters.length
+
+    try {
+      const result = await refreshComicChaptersFromSources(comicQuery.data, installedPlugins)
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: restQueryKeys.library }),
+        queryClient.invalidateQueries({ queryKey: restQueryKeys.libraryComic(comicQuery.data.id) })
+      ])
+      const refreshedComic = (await comicQuery.refetch()).data as ComicMetadata | undefined
+      const nextChapterCount = refreshedComic?.chapters.length ?? previousChapterCount
+      const addedChapters = Math.max(0, nextChapterCount - previousChapterCount)
+
+      toast.success(t('mainContent.nav.refresh.successTitle'), {
+        description: t('mainContent.nav.refresh.successDescription', {
+          sourcesChecked: result.sourcesChecked,
+          sourcesUpdated: result.sourcesUpdated,
+          addedChapters
+        })
+      })
+    } catch (error) {
+      const description =
+        error instanceof Error && error.message.trim().length > 0
+          ? error.message
+          : t('mainContent.nav.refresh.errorDescription')
+      toast.error(t('mainContent.nav.refresh.errorTitle'), { description })
+    } finally {
+      setIsRefreshingChapters(false)
+    }
+  }
 
   return (
     <BgBox className={cn('relative min-h-0 overflow-hidden', className)} {...props}>
@@ -345,17 +545,30 @@ export const MainContent: FC<MainContentProps> = ({
             if (!selectedWorkId || !preferredReaderChapterId) return
             navigate(`/reader/${selectedWorkId}/${preferredReaderChapterId}`)
           }}
+          onRefreshChapters={() => {
+            void handleRefreshChapters()
+          }}
+          isRefreshingChapters={isRefreshingChapters}
+          onLinkMetadata={() => {
+            if (!selectedWorkId) return
+            openWindow({
+              component: 'SearchContentWindow',
+              props: { targetComicId: selectedWorkId }
+            })
+          }}
           readDisabled={!preferredReaderChapterId}
         />
         <MainContentChapterTable
           entityId={selectedWorkId}
           chapters={deferredChapters}
           progressByChapterId={readProgressByChapterId}
+          pendingOfflineChapterIds={pendingOfflineChapterIds}
           selectedIds={selectedChapterIds}
           setSelectedIds={setSelectedChapterIds}
           isSelectionMode={showSelectionMode}
           onExitSelectionMode={() => setIsSelectionMode(false)}
           onOpenChapter={(chapterId) => navigate(`/reader/${selectedWorkId}/${chapterId}`)}
+          onMakeSelectedOffline={handleMakeSelectedOffline}
         />
       </div>
     </BgBox>

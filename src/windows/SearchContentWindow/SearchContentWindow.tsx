@@ -11,7 +11,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger
 } from 'components/ui/dropdown-menu'
-import { useDbListQuery, type WorkData, restQueryKeys } from 'services'
+import { useDbListQuery, useLibraryComicQuery, useLibraryListQuery, restQueryKeys } from 'services'
 import {
   addSearchResultToDatabase,
   listInstalledPlugins,
@@ -27,14 +27,16 @@ import { SearchResultCard } from './SearchResultCard'
 
 export interface SearchContentWindowProps extends Record<string, unknown> {
   closeSelf?: () => void
+  targetComicId?: string
 }
 
-export const SearchContentWindow: FC<SearchContentWindowProps> = ({ closeSelf }) => {
+export const SearchContentWindow: FC<SearchContentWindowProps> = ({ closeSelf, targetComicId }) => {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
 
   const pluginsQuery = useDbListQuery<PluginRecordData>('plugins', 500, 0)
-  const worksQuery = useDbListQuery<WorkData>('works', 500, 0)
+  const libraryQuery = useLibraryListQuery()
+  const targetComicQuery = useLibraryComicQuery(targetComicId)
 
   const [query, setQuery] = useState('')
   const [selectedPluginIds, setSelectedPluginIds] = useState<string[]>([])
@@ -72,12 +74,23 @@ export const SearchContentWindow: FC<SearchContentWindowProps> = ({ closeSelf })
 
   const existingWorkSourceKeySet = useMemo(() => {
     const set = new Set<string>()
-    for (const work of worksQuery.data ?? []) {
-      const sourceKey = typeof work.data.sourceKey === 'string' ? work.data.sourceKey : ''
-      if (sourceKey) set.add(sourceKey)
+    for (const work of libraryQuery.data ?? []) {
+      for (const sourceKey of work.sourceKeys ?? []) {
+        if (sourceKey) set.add(sourceKey)
+      }
     }
     return set
-  }, [worksQuery.data])
+  }, [libraryQuery.data])
+
+  const targetComicSourceKeySet = useMemo(() => {
+    const set = new Set<string>()
+    for (const source of targetComicQuery.data?.sources ?? []) {
+      const tag = typeof source.pluginTag === 'string' ? source.pluginTag.trim() : ''
+      const siteId = typeof source.sourceSiteId === 'string' ? source.sourceSiteId.trim() : ''
+      if (tag && siteId) set.add(`${tag}:${siteId}`)
+    }
+    return set
+  }, [targetComicQuery.data])
 
   const handleTogglePlugin = (pluginId: string) => {
     setSelectedPluginIds((current) =>
@@ -155,24 +168,27 @@ export const SearchContentWindow: FC<SearchContentWindowProps> = ({ closeSelf })
     setAddingByResultId((current) => ({ ...current, [item.id]: true }))
     setAddProgressByResultId((current) => ({
       ...current,
-      [item.id]: { value: 0, message: t('searchContent.actions.adding') }
+      [item.id]: {
+        value: 0,
+        message: t(targetComicId ? 'searchContent.actions.linking' : 'searchContent.actions.adding')
+      }
     }))
     try {
-      await addSearchResultToDatabase(item, selectedPlugins, (progress) => {
-        setAddProgressByResultId((current) => ({
-          ...current,
-          [item.id]: {
-            value: progress.value,
-            message: progress.message ? t(progress.message) : undefined
-          }
-        }))
+      await addSearchResultToDatabase(item, selectedPlugins, {
+        targetComicId,
+        onProgress: (progress) => {
+          setAddProgressByResultId((current) => ({
+            ...current,
+            [item.id]: {
+              value: progress.value,
+              message: progress.message ? t(progress.message) : undefined
+            }
+          }))
+        }
       })
-      await queryClient.invalidateQueries({ queryKey: ['rest', 'db', 'list', 'works'] })
-      await queryClient.invalidateQueries({ queryKey: ['rest', 'db', 'find', 'canonical_chapters'] })
-      await queryClient.invalidateQueries({ queryKey: ['rest', 'db', 'find', 'chapter_variants'] })
-      await queryClient.invalidateQueries({ queryKey: ['rest', 'db', 'find', 'chapter_mappings'] })
-      await queryClient.invalidateQueries({ queryKey: restQueryKeys.comics })
-      await queryClient.invalidateQueries({ queryKey: ['rest', 'chapters'] })
+      await queryClient.invalidateQueries({ queryKey: restQueryKeys.library })
+      await queryClient.invalidateQueries({ queryKey: ['rest', 'library', 'comic'] })
+      await queryClient.invalidateQueries({ queryKey: ['rest', 'library', 'chapters'] })
     } finally {
       setAddingByResultId((current) => ({ ...current, [item.id]: false }))
       setAddProgressByResultId((current) => {
@@ -238,7 +254,9 @@ export const SearchContentWindow: FC<SearchContentWindowProps> = ({ closeSelf })
               </DropdownMenuContent>
             </DropdownMenu>
             <div className="bg-background/90 px-3 py-2 text-xs text-muted-foreground supports-backdrop-filter:backdrop-blur-sm">
-              {t('searchContent.plugins.subtitle')}
+              {targetComicId && targetComicQuery.data?.title
+                ? t('searchContent.plugins.linkingSubtitle', { title: targetComicQuery.data.title })
+                : t('searchContent.plugins.subtitle')}
             </div>
           </div>
         </div>
@@ -258,7 +276,10 @@ export const SearchContentWindow: FC<SearchContentWindowProps> = ({ closeSelf })
               </div>
             )}
             {results.map((item) => {
-              const alreadyAdded = existingWorkSourceKeySet.has(`${item.pluginTag}:${item.siteId}`)
+              const sourceKey = `${item.pluginTag}:${item.siteId}`
+              const alreadyAdded = targetComicId
+                ? targetComicSourceKeySet.has(sourceKey)
+                : existingWorkSourceKeySet.has(sourceKey)
               return (
                 <SearchResultCard
                   key={item.id}
@@ -272,9 +293,9 @@ export const SearchContentWindow: FC<SearchContentWindowProps> = ({ closeSelf })
                   addProgress={addProgressByResultId[item.id]?.value}
                   addProgressMessage={addProgressByResultId[item.id]?.message}
                   alreadyAdded={alreadyAdded}
-                  addLabel={t('searchContent.actions.add')}
-                  addingLabel={t('searchContent.actions.adding')}
-                  addedLabel={t('searchContent.actions.added')}
+                  addLabel={t(targetComicId ? 'searchContent.actions.linkToCurrent' : 'searchContent.actions.add')}
+                  addingLabel={t(targetComicId ? 'searchContent.actions.linking' : 'searchContent.actions.adding')}
+                  addedLabel={t(targetComicId ? 'searchContent.actions.linked' : 'searchContent.actions.added')}
                   chaptersLabel={t('searchContent.labels.chapters')}
                 />
               )

@@ -22,6 +22,8 @@ interface AppStore {
   logout: () => void
   isMobileListOpen: boolean
   setMobileListOpen: (open: boolean) => void
+  selectedWorkId: string | null
+  setSelectedWorkId: (workId: string | null) => void
 }
 
 export const useAppStore = create<AppStore>((set) => ({
@@ -35,5 +37,7 @@ export const useAppStore = create<AppStore>((set) => ({
   setAccount: (account: AccountSession | null) => set({ account }),
   logout: () => set({ account: null }),
   isMobileListOpen: false,
-  setMobileListOpen: (open: boolean) => set({ isMobileListOpen: open })
+  setMobileListOpen: (open: boolean) => set({ isMobileListOpen: open }),
+  selectedWorkId: null,
+  setSelectedWorkId: (selectedWorkId: string | null) => set({ selectedWorkId })
 }))

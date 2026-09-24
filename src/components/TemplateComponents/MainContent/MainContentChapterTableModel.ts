@@ -5,6 +5,8 @@ export interface ChapterRowModel {
   chapterNumber: string
   chapterName: string
   chapterLanguages: string[]
+  isOffline: boolean
+  isOfflineDownloading: boolean
   progress: number
   isRead: boolean
   numberSortValue: number | null
@@ -67,7 +69,8 @@ const getChapterLanguages = (chapter: ResolvedChapterRecord): string[] => {
 
 export const mapChapterToRow = (
   chapter: ResolvedChapterRecord,
-  progressByChapterId?: Map<string, number>
+  progressByChapterId?: Map<string, number>,
+  pendingOfflineChapterIds?: Set<string>
 ): ChapterRowModel => {
   const variantChapterId =
     typeof chapter.data.variantChapterId === 'string' ? chapter.data.variantChapterId : ''
@@ -75,12 +78,26 @@ export const mapChapterToRow = (
     progressByChapterId?.get(chapter.id) ??
     (variantChapterId ? progressByChapterId?.get(variantChapterId) : undefined) ??
     0
+  const rawRecord =
+    chapter.data.raw && typeof chapter.data.raw === 'object'
+      ? (chapter.data.raw as Record<string, unknown>)
+      : null
+  const offlineRecord =
+    rawRecord?.offline && typeof rawRecord.offline === 'object'
+      ? (rawRecord.offline as Record<string, unknown>)
+      : null
+  const isOffline =
+    offlineRecord?.available === true ||
+    (typeof offlineRecord?.cbzFile === 'string' && offlineRecord.cbzFile.trim().length > 0)
+  const isOfflineDownloading = pendingOfflineChapterIds?.has(chapter.id) ?? false
 
   return {
     id: chapter.id,
     chapterNumber: getChapterNumber(chapter),
     chapterName: getChapterName(chapter),
     chapterLanguages: getChapterLanguages(chapter),
+    isOffline,
+    isOfflineDownloading,
     progress,
     isRead: progress >= 100,
     numberSortValue: extractComparableNumber(chapter.data.number)

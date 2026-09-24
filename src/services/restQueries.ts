@@ -1,22 +1,31 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import {
   apiHealthCheck,
+  downloadLibraryChaptersOffline,
+  deleteLibraryComic,
   dbFind,
   dbList,
   dbUpsert,
   getChapterPages,
+  getLibraryChapterPages,
+  getLibraryComic,
   listChaptersByComicId,
+  listLibraryComics,
   listComics,
   markChaptersReadState,
   migrateLegacyDatabase,
   type ChapterData,
   type ComicData,
+  type DownloadOfflineChaptersPayload,
+  type DownloadOfflineChaptersResponse,
   type DbRecord,
   type DbTable,
+  type LibraryListItem,
   type MarkChaptersPayload,
   type MarkChaptersResponse,
   type MigrateLegacyResponse
 } from './restClient'
+import type { ComicMetadata } from './libraryModel'
 
 type JsonRecord = Record<string, unknown>
 
@@ -27,8 +36,12 @@ export const restQueryKeys = {
   dbFind: (table: DbTable, jsonPath: string, value: unknown, limit?: number) =>
     ['rest', 'db', 'find', table, jsonPath, value, limit] as const,
   comics: ['rest', 'comics', 'list'] as const,
+  library: ['rest', 'library', 'list'] as const,
+  libraryComic: (comicId: string) => ['rest', 'library', 'comic', comicId] as const,
   chaptersByComicId: (comicId: string) => ['rest', 'chapters', 'comic', comicId] as const,
-  chapterPages: (chapterId: string) => ['rest', 'chapters', chapterId, 'pages'] as const
+  chapterPages: (chapterId: string) => ['rest', 'chapters', chapterId, 'pages'] as const,
+  libraryChapterPages: (comicId: string, chapterId: string) =>
+    ['rest', 'library', 'chapters', comicId, chapterId, 'pages'] as const
 }
 
 export function useApiHealthQuery() {
@@ -87,6 +100,29 @@ export function useChapterPagesQuery(chapterId: string | null | undefined) {
   })
 }
 
+export function useLibraryListQuery() {
+  return useQuery<LibraryListItem[]>({
+    queryKey: restQueryKeys.library,
+    queryFn: listLibraryComics
+  })
+}
+
+export function useLibraryComicQuery(comicId: string | null | undefined) {
+  return useQuery<ComicMetadata>({
+    queryKey: restQueryKeys.libraryComic(comicId ?? ''),
+    queryFn: () => getLibraryComic<ComicMetadata>(comicId as string),
+    enabled: Boolean(comicId)
+  })
+}
+
+export function useLibraryChapterPagesQuery(comicId: string | null | undefined, chapterId: string | null | undefined) {
+  return useQuery({
+    queryKey: restQueryKeys.libraryChapterPages(comicId ?? '', chapterId ?? ''),
+    queryFn: () => getLibraryChapterPages(comicId as string, chapterId as string),
+    enabled: Boolean(comicId && chapterId)
+  })
+}
+
 export function useDbUpsertMutation<T extends JsonRecord = JsonRecord>() {
   return useMutation({
     mutationFn: (params: { table: DbTable; data: T; id?: string }) =>
@@ -103,5 +139,21 @@ export function useMigrateLegacyDatabaseMutation() {
 export function useMarkChaptersReadStateMutation() {
   return useMutation<MarkChaptersResponse, Error, MarkChaptersPayload>({
     mutationFn: (payload) => markChaptersReadState(payload)
+  })
+}
+
+export function useDeleteLibraryComicMutation() {
+  return useMutation<{ deleted: boolean }, Error, string>({
+    mutationFn: (comicId) => deleteLibraryComic(comicId)
+  })
+}
+
+export function useDownloadLibraryChaptersOfflineMutation() {
+  return useMutation<
+    DownloadOfflineChaptersResponse,
+    Error,
+    { comicId: string; payload: DownloadOfflineChaptersPayload }
+  >({
+    mutationFn: ({ comicId, payload }) => downloadLibraryChaptersOffline(comicId, payload)
   })
 }

@@ -402,6 +402,11 @@ export const resolveChapterVariants = (
 
     if (selectedVariant) {
       usedVariantIds.add(selectedVariant.id)
+      const availableLanguageCodes = Array.from(
+        new Set(
+          candidates.flatMap((candidate) => variantLanguageCodes(candidate)).filter(Boolean)
+        )
+      )
       resolved.push({
         id: canonical.id,
         created_at: canonical.created_at,
@@ -410,6 +415,7 @@ export const resolveChapterVariants = (
           ...selectedVariant.data,
           canonicalChapterId: canonical.id,
           variantChapterId: selectedVariant.id,
+          availableLanguageCodes,
           number:
             (typeof canonical.data.number === 'string' && canonical.data.number) ||
             selectedVariant.data.number,

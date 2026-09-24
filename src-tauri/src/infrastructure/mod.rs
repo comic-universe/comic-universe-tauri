@@ -1,4 +1,5 @@
 mod migrations;
+mod library;
 
 use std::{collections::HashSet, fs, path::Path, path::PathBuf};
 
@@ -20,6 +21,12 @@ const TIMESTAMP_SQL: &str = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
 pub struct SqliteDocumentStore {
     db_path: PathBuf,
 }
+
+pub use library::{
+    build_variant_cbz_relative_path_from_parts,
+    resolve_variant_cbz_path,
+    FilesystemComicLibraryStore,
+};
 
 impl SqliteDocumentStore {
     pub fn initialize(base_dir: &Path) -> Result<Self, AppError> {

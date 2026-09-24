@@ -70,6 +70,22 @@ export interface ChapterPagesResponse {
   pages: ChapterPage[];
 }
 
+export interface LibraryListItem {
+  comicId: string
+  slug: string
+  title: string
+  descriptionPreview?: string | null
+  coverUrl?: string | null
+  status?: string | null
+  contentType?: string | null
+  languages: string[]
+  sourceKeys: string[]
+  chapterCount: number
+  offlineChapterCount: number
+  metadataPath: string
+  updatedAt: string
+}
+
 export interface MarkChaptersPayload {
   chapterIds: string[];
   read: boolean;
@@ -78,6 +94,32 @@ export interface MarkChaptersPayload {
 export interface MarkChaptersResponse {
   updated: number;
   skipped: number;
+}
+
+export interface ImportComicPayload {
+  data: {
+    targetComicId?: string
+    comic: Record<string, unknown>
+    chapters: Array<Record<string, unknown>>
+  }
+}
+
+export interface ImportComicResponse {
+  comicId: string
+  chaptersImported: number
+  chaptersSkipped: number
+}
+
+export interface DownloadOfflineChaptersPayload {
+  variantIds: string[]
+}
+
+export interface DownloadOfflineChaptersResponse {
+  comicId: string
+  requested: number
+  downloaded: number
+  skipped: number
+  failed: number
 }
 
 export interface ComicData {
@@ -219,12 +261,80 @@ export async function markChaptersReadState(
   });
 }
 
+export async function listLibraryComics(): Promise<LibraryListItem[]> {
+  return requestJson<LibraryListItem[]>(`${runtimeApiBaseUrl}/library`)
+}
+
+export async function getLibraryComic<T>(comicId: string): Promise<T> {
+  return requestJson<T>(`${runtimeApiBaseUrl}/library/${comicId}`)
+}
+
+export async function deleteLibraryComic(comicId: string): Promise<{ deleted: boolean }> {
+  return requestJson<{ deleted: boolean }>(`${runtimeApiBaseUrl}/library/${comicId}`, {
+    method: 'DELETE'
+  })
+}
+
+export async function downloadLibraryChaptersOffline(
+  comicId: string,
+  payload: DownloadOfflineChaptersPayload
+): Promise<DownloadOfflineChaptersResponse> {
+  return requestJson<DownloadOfflineChaptersResponse>(`${runtimeApiBaseUrl}/library/${comicId}/offline`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function getLibraryChapterPages(
+  comicId: string,
+  chapterId: string
+): Promise<ChapterPagesResponse> {
+  return requestJson<ChapterPagesResponse>(
+    `${runtimeApiBaseUrl}/library/${comicId}/chapters/${chapterId}/pages`
+  )
+}
+
+export async function importLibraryComic(payload: ImportComicPayload): Promise<ImportComicResponse> {
+  return requestJson<ImportComicResponse>(`${runtimeApiBaseUrl}/import/comic`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function upsertLibraryVariantPages(
+  comicId: string,
+  chapterId: string,
+  payload: {
+    variantId: string
+    canonicalChapterId?: string
+    pluginId?: string
+    pluginTag?: string
+    pluginName?: string
+    chapterSiteId?: string
+    chapterSiteUrl?: string
+    language?: string
+    languageCodes?: string[]
+    name?: string
+    pages: Array<{ index: number; fileName: string; url: string }>
+    sourceData?: unknown
+  }
+) {
+  return requestJson(`${runtimeApiBaseUrl}/library/${comicId}/chapters/${chapterId}/variants/pages`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
+}
+
 export function getChapterPageUrl(chapterId: string, pageIndex: number): string {
   return `${runtimeApiBaseUrl}/chapters/${chapterId}/pages/${pageIndex}`;
 }
 
 export function getComicCoverUrl(comicId: string): string {
   return `${runtimeApiBaseUrl}/comics/${comicId}/cover`;
+}
+
+export function getLibraryChapterPageUrl(comicId: string, chapterId: string, pageIndex: number): string {
+  return `${runtimeApiBaseUrl}/library/${comicId}/chapters/${chapterId}/pages/${pageIndex}`
 }
 
 export function setApiBaseUrl(value: string): void {

@@ -1,6 +1,7 @@
 import { dbFind, dbUpsert } from 'services'
 import type { PluginDeepLinkPayload, PluginMetadataResponse } from './types'
 import { normalizeBaseUrl, normalizePluginTag, SUPPORTED_DEEP_LINK_PROTOCOLS } from './utils'
+import { normalizePluginFeatures } from 'services'
 
 const buildPluginId = (tag: string | undefined, endpoint: string): string => {
   if (tag) return `plugin:${tag}`
@@ -111,6 +112,7 @@ export const installPluginFromDeepLink = async (
       contentTypes: metadata?.contentTypes || ['comic'],
       languageCodes: metadata?.languageCodes || [],
       capabilities: normalizeCapabilities(metadata?.capabilities),
+      features: normalizePluginFeatures(metadata?.features),
       sources: metadata?.sources || [],
       installedFrom: 'deep-link',
       installedAt: new Date().toISOString()

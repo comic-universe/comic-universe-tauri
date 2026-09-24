@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { BgBox } from 'components'
 import { Button } from 'components/ui/button'
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from 'components/ui/sheet'
-import { dbDelete, dbFind, restQueryKeys, useDbListQuery, type WorkData } from 'services'
+import { getComicCoverUrl, restQueryKeys, useDeleteLibraryComicMutation, useLibraryListQuery } from 'services'
 import { cn } from 'utils'
 import { useTranslation } from 'react-i18next'
 import { LeftListItem } from './LeftListItem'
@@ -21,11 +21,12 @@ export const LeftList: FC<LeftListProps> = ({
 }) => {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const worksQuery = useDbListQuery<WorkData>('works', 500, 0)
+  const libraryQuery = useLibraryListQuery()
+  const deleteLibraryComicMutation = useDeleteLibraryComicMutation()
   const [removingWorkId, setRemovingWorkId] = useState<string | null>(null)
   const [confirmDeleteWorkId, setConfirmDeleteWorkId] = useState<string | null>(null)
   const hasInitializedSelectionRef = useRef(false)
-  const visibleWorks = useMemo(() => worksQuery.data ?? [], [worksQuery.data])
+  const visibleWorks = useMemo(() => libraryQuery.data ?? [], [libraryQuery.data])
 
   useEffect(() => {
     if (selectedWorkId) {
@@ -38,70 +39,32 @@ export const LeftList: FC<LeftListProps> = ({
 
     if (!selectedWorkId && visibleWorks.length) {
       hasInitializedSelectionRef.current = true
-      onSelectWork?.(visibleWorks[0].id)
+      onSelectWork?.(visibleWorks[0].comicId)
     }
   }, [selectedWorkId, visibleWorks, onSelectWork])
 
   const removeWork = async (workId: string) => {
     if (removingWorkId) return
 
-    const nextSelectedWorkId = visibleWorks.find((work) => work.id !== workId)?.id ?? null
+    const nextSelectedWorkId =
+      visibleWorks.find((work) => work.comicId !== workId)?.comicId ?? null
     setRemovingWorkId(workId)
     try {
-      const [comics, chaptersByWork, canonicalChapters, chapterVariants, chapterMappings, readProgress] =
-        await Promise.all([
-          dbFind<Record<string, unknown>>('comics', 'workId', workId, 5000),
-          dbFind<Record<string, unknown>>('chapters', 'workId', workId, 5000),
-          dbFind<Record<string, unknown>>('canonical_chapters', 'workId', workId, 5000),
-          dbFind<Record<string, unknown>>('chapter_variants', 'workId', workId, 5000),
-          dbFind<Record<string, unknown>>('chapter_mappings', 'workId', workId, 5000),
-          dbFind<Record<string, unknown>>('read_progress', 'comicId', workId, 5000)
-        ])
-
-      const comicIds = comics.map((record) => record.id)
-      const legacyReadProgressLists = await Promise.all(
-        comicIds.map((comicId) => dbFind<Record<string, unknown>>('read_progress', 'comicId', comicId, 5000))
-      )
-
-      const chaptersByComicLists = await Promise.all(
-        comicIds.map((comicId) => dbFind<Record<string, unknown>>('chapters', 'comicId', comicId, 5000))
-      )
-
-      const deleteTargets = new Map<string, { table: Parameters<typeof dbDelete>[0]; id: string }>()
-      const addDeleteTarget = (table: Parameters<typeof dbDelete>[0], id: string) => {
-        deleteTargets.set(`${table}::${id}`, { table, id })
-      }
-
-      chaptersByWork.forEach((record) => addDeleteTarget('chapters', record.id))
-      chaptersByComicLists.flat().forEach((record) => addDeleteTarget('chapters', record.id))
-      canonicalChapters.forEach((record) => addDeleteTarget('canonical_chapters', record.id))
-      chapterVariants.forEach((record) => addDeleteTarget('chapter_variants', record.id))
-      chapterMappings.forEach((record) => addDeleteTarget('chapter_mappings', record.id))
-      comics.forEach((record) => addDeleteTarget('comics', record.id))
-      readProgress.forEach((record) => addDeleteTarget('read_progress', record.id))
-      legacyReadProgressLists.flat().forEach((record) => addDeleteTarget('read_progress', record.id))
-      addDeleteTarget('works', workId)
-
-      await Promise.all(
-        [...deleteTargets.values()].map((target) => dbDelete(target.table, target.id))
-      )
+      await deleteLibraryComicMutation.mutateAsync(workId)
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: restQueryKeys.dbList('works', 500, 0) }),
-        queryClient.invalidateQueries({ queryKey: restQueryKeys.comics }),
-        queryClient.invalidateQueries({ queryKey: ['rest', 'chapters'] }),
-        queryClient.invalidateQueries({ queryKey: ['rest', 'db', 'find', 'canonical_chapters'] }),
-        queryClient.invalidateQueries({ queryKey: ['rest', 'db', 'find', 'chapter_variants'] }),
-        queryClient.invalidateQueries({ queryKey: ['rest', 'db', 'find', 'chapter_mappings'] }),
+        queryClient.invalidateQueries({ queryKey: restQueryKeys.library }),
+        queryClient.invalidateQueries({ queryKey: ['rest', 'library', 'comic'] }),
+        queryClient.invalidateQueries({ queryKey: ['rest', 'library', 'chapters'] }),
         queryClient.invalidateQueries({ queryKey: ['rest', 'db', 'find', 'read_progress'] })
       ])
-      await worksQuery.refetch()
+      await libraryQuery.refetch()
 
       if (selectedWorkId === workId) {
         hasInitializedSelectionRef.current = true
         onSelectWork?.(nextSelectedWorkId)
       }
     } catch (error) {
-      await queryClient.invalidateQueries({ queryKey: restQueryKeys.dbList('works', 500, 0) })
+      await queryClient.invalidateQueries({ queryKey: restQueryKeys.library })
       throw error
     } finally {
       setRemovingWorkId(null)
@@ -109,10 +72,9 @@ export const LeftList: FC<LeftListProps> = ({
     }
   }
 
-  const confirmDeleteWork = (worksQuery.data ?? []).find((work) => work.id === confirmDeleteWorkId) ?? null
+  const confirmDeleteWork = (libraryQuery.data ?? []).find((work) => work.comicId === confirmDeleteWorkId) ?? null
   const confirmDeleteWorkName =
-    (typeof confirmDeleteWork?.data.title === 'string' && confirmDeleteWork.data.title) ||
-    (typeof confirmDeleteWork?.data.name === 'string' && confirmDeleteWork.data.name) ||
+    confirmDeleteWork?.title ||
     confirmDeleteWorkId ||
     ''
 
@@ -120,24 +82,21 @@ export const LeftList: FC<LeftListProps> = ({
     <BgBox className={cn('min-h-0 overflow-auto', className)} {...props}>
       <div className="divide-y divide-white/10">
         {visibleWorks.map((work) => {
-          const workName =
-            (typeof work.data.title === 'string' && work.data.title) ||
-            (typeof work.data.name === 'string' && work.data.name) ||
-            work.id
-          const coverUrl = typeof work.data.cover === 'string' ? work.data.cover : undefined
+          const workName = work.title || work.comicId
+          const coverUrl = getComicCoverUrl(work.comicId)
 
           return (
             <LeftListItem
-              key={work.id}
+              key={work.comicId}
               title={workName}
               coverUrl={coverUrl}
               onClick={() => {
                 hasInitializedSelectionRef.current = true
-                onSelectWork?.(work.id)
+                onSelectWork?.(work.comicId)
               }}
-              onRemove={() => setConfirmDeleteWorkId(work.id)}
-              removing={removingWorkId === work.id}
-              active={work.id === selectedWorkId}
+              onRemove={() => setConfirmDeleteWorkId(work.comicId)}
+              removing={removingWorkId === work.comicId}
+              active={work.comicId === selectedWorkId}
             />
           )
         })}

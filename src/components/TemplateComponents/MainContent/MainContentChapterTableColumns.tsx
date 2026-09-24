@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
-import { BookOpenCheck, CheckSquare2, ChevronUp, Square, Undo2 } from 'lucide-react'
+import { BookOpenCheck, CheckSquare2, ChevronUp, Loader2, Square, Undo2, WifiOff } from 'lucide-react'
 import { Badge } from 'components/ui/badge'
 import { Button } from 'components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from 'components/ui/tooltip'
@@ -157,17 +157,37 @@ export const buildChapterColumns = ({
         <div className="px-2 text-xs font-normal">{t('mainContent.chapterTable.headers.name')}</div>
       ),
       cell: ({ row }) => (
-        <div className="flex items-center gap-2 px-2">
-          {row.original.chapterLanguages.length > 0 ? (
-            <div className="flex shrink-0 flex-wrap items-center gap-1">
-              {row.original.chapterLanguages.map((language) => (
-                <Badge key={`${row.original.id}:${language}`} variant="outline" className="px-1.5 py-0 text-[10px]">
-                  {language}
-                </Badge>
-              ))}
-            </div>
-          ) : null}
-          <div className="min-w-0 truncate">{row.original.chapterName}</div>
+        <div className="flex items-center justify-between gap-3 px-2">
+          <div className="min-w-0 flex-1 truncate">{row.original.chapterName}</div>
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+            {row.original.chapterLanguages.map((language) => (
+              <Badge key={`${row.original.id}:${language}`} variant="outline" className="px-1.5 py-0 text-[10px]">
+                {language}
+              </Badge>
+            ))}
+            {row.original.isOfflineDownloading ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge variant="outline" className="gap-1 px-1.5 py-0 text-[10px]">
+                    <Loader2 className="size-3 animate-spin" />
+                    {t('mainContent.chapterTable.labels.offlineDownloading')}
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent>{t('mainContent.chapterTable.labels.offlineDownloading')}</TooltipContent>
+              </Tooltip>
+            ) : null}
+            {row.original.isOffline ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge variant="outline" className="gap-1 px-1.5 py-0 text-[10px]">
+                    <WifiOff className="size-3" />
+                    {t('mainContent.chapterTable.labels.offline')}
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent>{t('mainContent.chapterTable.labels.offline')}</TooltipContent>
+              </Tooltip>
+            ) : null}
+          </div>
         </div>
       ),
       enableSorting: false

@@ -1,4 +1,5 @@
-import { dbUpsert, type DbRecord } from 'services'
+import { importLibraryComic, type DbRecord, type ComicMetadata } from 'services'
+import { normalizePluginFeatures } from 'services'
 import i18n from 'i18n'
 
 export interface PluginRecordData {
@@ -10,6 +11,7 @@ export interface PluginRecordData {
   contentTypes?: string[]
   languageCodes?: string[]
   capabilities?: string[] | { metadata?: boolean; content?: boolean }
+  features?: { onDemandPageList?: boolean }
   sources?: Array<{
     id?: string
     name?: string
@@ -29,6 +31,7 @@ export interface InstalledPlugin {
   languageCodes: string[]
   providesMetadata: boolean
   providesContent: boolean
+  supportsOnDemandPageList: boolean
   sourceId?: string
   sourceName?: string
 }
@@ -93,6 +96,13 @@ export interface SearchByPluginsResult {
 export interface AddToDatabaseProgress {
   value: number
   message?: string
+}
+
+export interface RefreshComicChaptersResult {
+  sourcesChecked: number
+  sourcesUpdated: number
+  chaptersImported: number
+  chaptersSkipped: number
 }
 
 const normalizeBaseUrl = (value: string): string => value.replace(/\/+$/, '')
@@ -341,6 +351,7 @@ const normalizePlugin = (record: DbRecord<PluginRecordData>): InstalledPlugin | 
       : [],
     providesMetadata: capabilities.metadata,
     providesContent: capabilities.content,
+    supportsOnDemandPageList: normalizePluginFeatures(record.data.features).onDemandPageList === true,
     sourceId: defaultSource?.id,
     sourceName: defaultSource?.name
   }
@@ -877,10 +888,13 @@ export const searchByPlugins = async (
 export const addSearchResultToDatabase = async (
   result: SearchResultItem,
   selectedPlugins: InstalledPlugin[],
-  onProgress?: (progress: AddToDatabaseProgress) => void
+  options?: {
+    targetComicId?: string
+    onProgress?: (progress: AddToDatabaseProgress) => void
+  }
 ): Promise<void> => {
   const updateProgress = (value: number, message?: string) => {
-    onProgress?.({
+    options?.onProgress?.({
       value: Math.max(0, Math.min(100, Math.round(value))),
       message
     })
@@ -910,7 +924,6 @@ export const addSearchResultToDatabase = async (
     metadataChaptersRaw = []
   }
 
-  const workId = stableId('work', result.pluginTag, result.siteId || result.siteLink || result.title)
   const sourceKey = `${result.pluginTag}:${result.siteId}`
   const chapterCountFromDetails = parseOptionalNonNegativeNumber(
     pickString(details, ['chapterCount', 'chaptersCount', 'totalChapters'])
@@ -921,6 +934,7 @@ export const addSearchResultToDatabase = async (
       : result.chapterCount
   const workData: Record<string, unknown> = {
     title: result.title,
+    name: result.title,
     description:
       pickString(details, ['synopsis', 'description']) ||
       pickString(result.rawComic, ['synopsis', 'description']) ||
@@ -940,46 +954,13 @@ export const addSearchResultToDatabase = async (
     rawMetadata: { ...result.rawComic, ...details }
   }
 
-  updateProgress(20, 'searchContent.progress.savingWork')
-  await dbUpsert('works', workData, workId)
-
   const effectiveChapterCount =
     chapterCountFromDetails !== null && chapterCountFromDetails > 0
       ? chapterCountFromDetails
       : (result.chapterCount ?? 0)
 
   let canonicalChapters = normalizeCanonicalChapters(metadataChaptersRaw, result.languages)
-  const canonicalByNumber = new Map<string, { id: string; number: string; name: string }>()
-
-  for (let index = 0; index < canonicalChapters.length; index += 1) {
-    const chapter = canonicalChapters[index]
-    const canonicalChapterId = stableId(
-      'canonical-chapter',
-      workId,
-      chapter.siteId || chapter.number || chapter.name || String(index + 1)
-    )
-    const chapterNumber = chapter.number || String(index + 1)
-    const chapterData: Record<string, unknown> = {
-      workId,
-      number: chapterNumber,
-      name: chapter.name || i18n.t('common.chapterLabel', { number: chapterNumber }),
-      siteId: chapter.siteId || null,
-      siteLink: chapter.siteLink || null,
-      languageCodes: chapter.languageCodes,
-      sourcePluginId: result.pluginId,
-      sourcePluginTag: result.pluginTag,
-      raw: chapter.raw
-    }
-    await dbUpsert('canonical_chapters', chapterData, canonicalChapterId)
-    const ratio = canonicalChapters.length > 0 ? (index + 1) / canonicalChapters.length : 1
-    updateProgress(20 + ratio * 20, 'searchContent.progress.savingChapterIndex')
-
-    canonicalByNumber.set(normalizeChapterNumber(chapterNumber), {
-      id: canonicalChapterId,
-      number: chapterNumber,
-      name: chapterData.name as string
-    })
-  }
+  const chaptersForImport: Array<Record<string, unknown>> = []
 
   const contentPlugins = selectedPlugins.filter(
     (plugin) =>
@@ -997,9 +978,6 @@ export const addSearchResultToDatabase = async (
   const prioritizedContentPlugins =
     candidateContentPlugins.length > 0 ? candidateContentPlugins : contentPlugins
 
-  let bestContentPlugin: InstalledPlugin | null = null
-  let bestContentChapters: NormalizedChapter[] = []
-
   updateProgress(42, 'searchContent.progress.loadingContentSources')
   for (const contentPlugin of prioritizedContentPlugins) {
     let contentChapters: NormalizedChapter[] = []
@@ -1010,86 +988,28 @@ export const addSearchResultToDatabase = async (
     }
     if (contentChapters.length === 0) continue
 
-    if (contentChapters.length > bestContentChapters.length) {
-      bestContentPlugin = contentPlugin
-      bestContentChapters = contentChapters
-    }
-
     for (let index = 0; index < contentChapters.length; index += 1) {
       const chapter = contentChapters[index]
-      const variantChapterId = stableId(
-        'chapter-variant',
-        workId,
-        contentPlugin.tag,
-        chapter.siteId || chapter.number || chapter.name || String(index + 1)
-      )
       const chapterNumber = chapter.number || String(index + 1)
-
-      const variantData: Record<string, unknown> = {
-        workId,
+      chaptersForImport.push({
+        ...chapter.raw,
+        chapterSiteId: chapter.siteId || null,
+        chapterSiteUrl: chapter.siteLink || null,
+        number: chapterNumber,
+        name: chapter.name || i18n.t('common.chapterLabel', { number: chapterNumber }),
+        language: pickString(chapter.raw, ['language', 'lang']) || null,
+        languageCodes: chapter.languageCodes,
+        pages: chapter.pages,
         pluginId: contentPlugin.id,
         pluginTag: contentPlugin.tag,
         pluginName: contentPlugin.name,
         sourceId: contentPlugin.sourceId || null,
-        sourceName: contentPlugin.sourceName || null,
-        siteId: chapter.siteId || null,
-        siteLink: chapter.siteLink || null,
-        number: chapterNumber,
-        name: chapter.name || i18n.t('common.chapterLabel', { number: chapterNumber }),
-        language: pickString(chapter.raw, ['language', 'lang']) || null,
-        pages: chapter.pages,
-        languageCodes: chapter.languageCodes,
-        raw: chapter.raw
-      }
-      await dbUpsert('chapter_variants', variantData, variantChapterId)
-
-      const chapterNumberKey = normalizeChapterNumber(chapterNumber)
-      let mappedCanonical = canonicalByNumber.get(chapterNumberKey)
-      if (!mappedCanonical) {
-        const canonicalChapterId = stableId('canonical-chapter', workId, chapterNumber)
-        const canonicalChapterData: Record<string, unknown> = {
-          workId,
-          number: chapterNumber,
-          name: chapter.name || i18n.t('common.chapterLabel', { number: chapterNumber }),
-          siteId: null,
-          siteLink: null,
-          languageCodes: chapter.languageCodes,
-          sourcePluginId: result.pluginId,
-          sourcePluginTag: result.pluginTag,
-          raw: {
-            ...(chapter.raw || {}),
-            generatedFromContent: true
-          }
-        }
-        await dbUpsert('canonical_chapters', canonicalChapterData, canonicalChapterId)
-        mappedCanonical = {
-          id: canonicalChapterId,
-          number: chapterNumber,
-          name: canonicalChapterData.name as string
-        }
-        canonicalByNumber.set(chapterNumberKey, mappedCanonical)
-      }
-
-      if (mappedCanonical) {
-        const mappingId = stableId('chapter-mapping', mappedCanonical.id, variantChapterId)
-        await dbUpsert(
-          'chapter_mappings',
-          {
-            workId,
-            canonicalChapterId: mappedCanonical.id,
-            variantChapterId,
-            strategy: 'number-match',
-            confidence: 0.95,
-            metadataPluginId: result.pluginId,
-            contentPluginId: contentPlugin.id
-          },
-          mappingId
-        )
-      }
+        sourceName: contentPlugin.sourceName || null
+      })
     }
   }
 
-  if (canonicalChapters.length === 0 && canonicalByNumber.size === 0 && effectiveChapterCount > 0) {
+  if (canonicalChapters.length === 0 && chaptersForImport.length === 0 && effectiveChapterCount > 0) {
     canonicalChapters = Array.from({ length: effectiveChapterCount }, (_, index) => {
       const number = String(index + 1)
       return {
@@ -1099,97 +1019,164 @@ export const addSearchResultToDatabase = async (
         raw: { generated: true, source: 'chapterCount' }
       }
     })
-
-    for (let index = 0; index < canonicalChapters.length; index += 1) {
-      const chapter = canonicalChapters[index]
-      const canonicalChapterId = stableId(
-        'canonical-chapter',
-        workId,
-        chapter.siteId || chapter.number || chapter.name || String(index + 1)
-      )
-      const chapterNumber = chapter.number || String(index + 1)
-      const chapterData: Record<string, unknown> = {
-        workId,
-        number: chapterNumber,
-        name: chapter.name || i18n.t('common.chapterLabel', { number: chapterNumber }),
-        siteId: chapter.siteId || null,
-        siteLink: chapter.siteLink || null,
+  }
+  if (chaptersForImport.length === 0) {
+    chaptersForImport.push(
+      ...canonicalChapters.map((chapter) => ({
+        ...chapter.raw,
+        number: chapter.number,
+        name: chapter.name || i18n.t('common.chapterLabel', { number: chapter.number }),
         languageCodes: chapter.languageCodes,
-        sourcePluginId: result.pluginId,
-        sourcePluginTag: result.pluginTag,
-        raw: chapter.raw
-      }
-      await dbUpsert('canonical_chapters', chapterData, canonicalChapterId)
-      canonicalByNumber.set(normalizeChapterNumber(chapterNumber), {
-        id: canonicalChapterId,
-        number: chapterNumber,
-        name: chapterData.name as string
-      })
-    }
+        pluginId: result.pluginId,
+        pluginTag: result.pluginTag,
+        pluginName: result.pluginName
+      }))
+    )
   }
 
-  const comicId = stableId('comic', result.pluginTag, result.siteId || result.siteLink || result.title)
   const comicData: Record<string, unknown> = {
-    name: result.title,
-    synopsis: workData.description,
-    cover: workData.cover,
-    siteId: result.siteId,
-    siteLink: result.siteLink || null,
+    ...result.rawComic,
+    ...details,
+    ...workData,
     sourceTag: result.pluginTag,
     sourceName: result.sourceName || result.pluginName,
     sourceId: result.sourceId || null,
     pluginId: result.pluginId,
-    pluginEndpoint: result.endpoint,
-    contentType: result.contentType,
-    languageCodes: result.languages,
-    hasOffline: false,
-    offline: 0,
-    workId,
-    ...result.rawComic,
-    ...details
+    pluginName: result.pluginName,
+    sourceSiteId: result.siteId,
+    sourceSiteLink: result.siteLink || null
   }
 
   updateProgress(82, 'searchContent.progress.savingComic')
-  await dbUpsert('comics', comicData, comicId)
-
-  if (!bestContentPlugin || bestContentChapters.length === 0) {
-    updateProgress(100, 'searchContent.progress.done')
-    return
-  }
-
-  for (let index = 0; index < bestContentChapters.length; index += 1) {
-    const chapter = bestContentChapters[index]
-    const chapterId = stableId(
-      'chapter',
-      comicId,
-      bestContentPlugin.tag,
-      chapter.siteId || chapter.number || chapter.name || String(index + 1)
-    )
-
-    const chapterData: Record<string, unknown> = {
-      ...chapter.raw,
-      comicId,
-      workId,
-      siteId: chapter.siteId || null,
-      siteLink: chapter.siteLink || null,
-      number: chapter.number || String(index + 1),
-      name: chapter.name || '',
-      pages: chapter.pages,
-      sourceTag: bestContentPlugin.tag,
-      sourceName: bestContentPlugin.name,
-      sourceId: bestContentPlugin.sourceId || null,
-      pluginId: bestContentPlugin.id,
-      languageCodes: chapter.languageCodes,
-      hasOffline: false,
-      offline: 0
+  await importLibraryComic({
+    data: {
+      targetComicId: options?.targetComicId,
+      comic: comicData,
+      chapters: chaptersForImport
     }
-
-    await dbUpsert('chapters', chapterData, chapterId)
-    const ratio = bestContentChapters.length > 0 ? (index + 1) / bestContentChapters.length : 1
-    updateProgress(82 + ratio * 18, 'searchContent.progress.savingReadableChapters')
-  }
+  })
 
   updateProgress(100, 'searchContent.progress.done')
+}
+
+export const refreshComicChaptersFromSources = async (
+  comic: ComicMetadata,
+  installedPlugins: InstalledPlugin[]
+): Promise<RefreshComicChaptersResult> => {
+  const checkedSourceKeys = new Set<string>()
+  const pluginsById = new Map(installedPlugins.map((plugin) => [plugin.id, plugin] as const))
+  const pluginsByTag = new Map(installedPlugins.map((plugin) => [plugin.tag, plugin] as const))
+
+  let sourcesChecked = 0
+  let sourcesUpdated = 0
+  let chaptersImported = 0
+  let chaptersSkipped = 0
+
+  for (const source of comic.sources ?? []) {
+    const sourceSiteId =
+      typeof source.sourceSiteId === 'string' && source.sourceSiteId.trim().length > 0
+        ? source.sourceSiteId.trim()
+        : ''
+    if (!sourceSiteId) continue
+
+    const plugin =
+      (typeof source.pluginId === 'string' ? pluginsById.get(source.pluginId) : undefined) ??
+      (typeof source.pluginTag === 'string' ? pluginsByTag.get(source.pluginTag) : undefined)
+    if (!plugin || !plugin.enabled) continue
+
+    const sourceKey = `${plugin.id}:${sourceSiteId}`
+    if (checkedSourceKeys.has(sourceKey)) continue
+    checkedSourceKeys.add(sourceKey)
+    sourcesChecked += 1
+
+    let chaptersRaw: unknown[] = []
+    try {
+      chaptersRaw = await postPlugin<unknown[]>(plugin.endpoint, 'getChapters', {
+        siteId: sourceSiteId,
+        languageCodes: resolvePreferredLanguageCodes(plugin)
+      })
+    } catch {
+      continue
+    }
+
+    const contentChapters = await normalizeChapters(plugin, { siteId: sourceSiteId }, chaptersRaw)
+    let chaptersForImport: Array<Record<string, unknown>> = []
+
+    if (contentChapters.length > 0) {
+      chaptersForImport = contentChapters.map((chapter, index) => {
+        const chapterNumber = chapter.number || String(index + 1)
+        return {
+          ...chapter.raw,
+          chapterSiteId: chapter.siteId || null,
+          chapterSiteUrl: chapter.siteLink || null,
+          number: chapterNumber,
+          name: chapter.name || i18n.t('common.chapterLabel', { number: chapterNumber }),
+          language: pickString(chapter.raw, ['language', 'lang']) || null,
+          languageCodes: chapter.languageCodes,
+          pages: chapter.pages,
+          pluginId: plugin.id,
+          pluginTag: plugin.tag,
+          pluginName: plugin.name,
+          sourceId: plugin.sourceId || null,
+          sourceName: plugin.sourceName || null
+        }
+      })
+    } else {
+      const canonicalChapters = normalizeCanonicalChapters(chaptersRaw, comic.languages ?? [])
+      chaptersForImport = canonicalChapters.map((chapter) => ({
+        ...chapter.raw,
+        chapterSiteId: chapter.siteId || null,
+        chapterSiteUrl: chapter.siteLink || null,
+        number: chapter.number,
+        name: chapter.name || i18n.t('common.chapterLabel', { number: chapter.number }),
+        languageCodes: chapter.languageCodes,
+        pluginId: plugin.id,
+        pluginTag: plugin.tag,
+        pluginName: plugin.name,
+        sourceId: plugin.sourceId || null,
+        sourceName: plugin.sourceName || null
+      }))
+    }
+
+    if (chaptersForImport.length === 0) continue
+
+    const response = await importLibraryComic({
+      data: {
+        targetComicId: comic.id,
+        comic: {
+          title: comic.title,
+          name: comic.title,
+          description: comic.description ?? '',
+          publisher: comic.publisher ?? null,
+          status: comic.status ?? null,
+          contentType: comic.contentType ?? null,
+          cover: comic.cover?.remoteUrl ?? null,
+          languageCodes: comic.languages,
+          sourceTag: source.pluginTag || plugin.tag,
+          sourceName: source.pluginName || plugin.name,
+          pluginId: source.pluginId || plugin.id,
+          pluginName: source.pluginName || plugin.name,
+          sourceSiteId,
+          sourceSiteLink:
+            (typeof source.sourceSiteUrl === 'string' && source.sourceSiteUrl.trim().length > 0
+              ? source.sourceSiteUrl
+              : null)
+        },
+        chapters: chaptersForImport
+      }
+    })
+
+    sourcesUpdated += 1
+    chaptersImported += response.chaptersImported
+    chaptersSkipped += response.chaptersSkipped
+  }
+
+  return {
+    sourcesChecked,
+    sourcesUpdated,
+    chaptersImported,
+    chaptersSkipped
+  }
 }
 
 export const loadSearchResultDetails = async (

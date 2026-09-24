@@ -1,8 +1,11 @@
+mod library;
+
 use std::sync::Arc;
 
 use serde_json::Value;
 
 use crate::domain::{AppError, DbRecord, LegacyImportReport, Table};
+pub use library::{ComicLibraryStore, LibraryService};
 
 pub trait DocumentStore: Send + Sync {
     fn upsert(&self, table: Table, id: Option<String>, data: Value) -> Result<DbRecord, AppError>;

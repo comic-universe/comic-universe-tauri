@@ -4,7 +4,7 @@ import { isTauri } from '@tauri-apps/api/core'
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
 import { processDeepLinkUrl } from 'services/deepLink'
-import { accountSessionQueryKey, restQueryKeys, setApiBaseUrl } from 'services'
+import { accountSessionQueryKey, getApiBaseUrl, restQueryKeys, setApiBaseUrl } from 'services'
 
 interface ApiEndpointPayload {
   host: string
@@ -32,12 +32,18 @@ export const ApiEndpointBridge: FC = () => {
 
         unlisten = await listen<ApiEndpointPayload>('api://endpoint', (event) => {
           if (cancelled) return
-          setApiBaseUrl(event.payload.baseUrl)
+          const nextBaseUrl = event.payload.baseUrl.trim()
+          const currentBaseUrl = getApiBaseUrl().trim()
+          if (!nextBaseUrl || nextBaseUrl === currentBaseUrl) {
+            return
+          }
+
+          setApiBaseUrl(nextBaseUrl)
           void queryClient.invalidateQueries({ queryKey: restQueryKeys.health })
           void queryClient.invalidateQueries({ queryKey: accountSessionQueryKey })
           void queryClient.invalidateQueries({ queryKey: ['rest'] })
           console.info(
-            `[comic-universe] REST API endpoint set to ${event.payload.baseUrl} (${event.payload.host}:${event.payload.port})`
+            `[comic-universe] REST API endpoint set to ${nextBaseUrl} (${event.payload.host}:${event.payload.port})`
           )
         })
 

@@ -19,8 +19,8 @@ use tauri::{Emitter, Manager, RunEvent};
 use tauri_plugin_deep_link::DeepLinkExt;
 
 use crate::{
-    application::{AdminService, DocumentService},
-    infrastructure::SqliteDocumentStore,
+    application::{AdminService, DocumentService, LibraryService},
+    infrastructure::{FilesystemComicLibraryStore, SqliteDocumentStore},
     presentation::{start_rest_api, ApiEndpointPayload, RestApiState},
 };
 
@@ -102,12 +102,17 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     );
     let service = DocumentService::new(store.clone());
     let admin_service = AdminService::new(store.clone());
+    let library_store = std::sync::Arc::new(
+        FilesystemComicLibraryStore::initialize(&paths.database, &paths.comics)
+            .map_err(|e| boxed_error(e.to_string()))?,
+    );
+    let library_service = LibraryService::new(library_store);
     seed_default_plugins(&service)
         .map_err(|error| boxed_error(format!("Failed to seed default plugins: {error}")))?;
     sync_chapters_offline_status(&service, &paths.comics)
         .map_err(|error| boxed_error(format!("Failed to sync offline chapter status: {error}")))?;
 
-    match start_rest_api(service, admin_service, paths.comics.clone()) {
+    match start_rest_api(service, admin_service, library_service, paths.comics.clone()) {
         Ok(api) => {
             let endpoint = api.endpoint();
             println!(
@@ -159,6 +164,9 @@ fn seed_default_plugins(service: &DocumentService) -> Result<(), String> {
                 "metadataUrl": "https://comic-universe-plugin-mangadex.vercel.app/api/metadata",
                 "contentTypes": ["manga", "comic"],
                 "capabilities": ["metadata", "content"],
+                "features": {
+                    "onDemandPageList": true
+                },
                 "languageCodes": ["en", "pt-br", "es-la", "es", "fr", "de", "it", "ru", "ja"],
                 "sources": [
                     {

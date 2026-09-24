@@ -148,8 +148,20 @@
         "selectedCount_one": "{{count}} selecionado",
         "selectedCount_other": "{{count}} selecionados",
         "clear": "Limpar",
+        "makeOffline": "Disponível offline",
+        "makingOffline": "A transferir...",
+        "makeOfflineSuccessTitle": "Transferência offline concluída",
+        "makeOfflineSuccessDescription": "{{downloaded}} transferidos, {{skipped}} ignorados, {{failed}} falharam",
+        "makeOfflineErrorTitle": "Falha na transferência offline",
+        "makeOfflineErrorDescription": "Não foi possível transferir os capítulos selecionados",
+        "makeOfflinePartialErrorTitle": "Algumas transferências offline falharam",
+        "makeOfflinePartialErrorDescription": "{{failed}} capítulos não puderam ser transferidos",
         "markRead": "Marcar lido",
         "markUnread": "Marcar não lido"
+      },
+      "labels": {
+        "offline": "Disponível offline",
+        "offlineDownloading": "A transferir offline"
       },
       "mobile": {
         "selectChapters": "Selecionar",
@@ -159,6 +171,12 @@
     }
   },
   "mainContent.nav.actions.read": "Ler de onde ficou",
+  "mainContent.nav.actions.refreshChapters": "Buscar novos capítulos",
+  "mainContent.nav.actions.linkMetadata": "Ligar fonte de metadados",
+  "mainContent.nav.refresh.successTitle": "Atualização de capítulos concluída",
+  "mainContent.nav.refresh.successDescription": "{{addedChapters}} novos capítulos adicionados após verificar {{sourcesChecked}} fontes ({{sourcesUpdated}} atualizadas)",
+  "mainContent.nav.refresh.errorTitle": "Falha ao atualizar capítulos",
+  "mainContent.nav.refresh.errorDescription": "Não foi possível buscar novos capítulos para este comic",
   "reader": {
     "back": "Voltar",
     "close": "Fechar leitor",
@@ -179,7 +197,8 @@
   "searchContent": {
     "plugins": {
       "title": "Plugins",
-      "subtitle": "Selecione as fontes para pesquisar"
+      "subtitle": "Selecione as fontes para pesquisar",
+      "linkingSubtitle": "A ligar dados em {{title}}"
     },
     "search": {
       "placeholder": "Pesquisar quadrinhos, mangás ou títulos...",
@@ -194,6 +213,9 @@
       "add": "Adicionar à base de dados",
       "adding": "A adicionar...",
       "added": "Adicionado",
+      "linkToCurrent": "Ligar ao comic atual",
+      "linking": "A ligar...",
+      "linked": "Ligado",
       "expandResult": "Expandir resultado",
       "collapseResult": "Recolher resultado",
       "close": "Fechar pesquisa"

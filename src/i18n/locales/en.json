@@ -148,8 +148,20 @@
         "selectedCount_one": "{{count}} selected",
         "selectedCount_other": "{{count}} selected",
         "clear": "Clear",
+        "makeOffline": "Make offline",
+        "makingOffline": "Downloading...",
+        "makeOfflineSuccessTitle": "Offline download finished",
+        "makeOfflineSuccessDescription": "{{downloaded}} downloaded, {{skipped}} skipped, {{failed}} failed",
+        "makeOfflineErrorTitle": "Offline download failed",
+        "makeOfflineErrorDescription": "Could not download the selected chapters",
+        "makeOfflinePartialErrorTitle": "Some offline downloads failed",
+        "makeOfflinePartialErrorDescription": "{{failed}} chapters could not be downloaded",
         "markRead": "Mark read",
         "markUnread": "Mark unread"
+      },
+      "labels": {
+        "offline": "Available offline",
+        "offlineDownloading": "Downloading offline"
       },
       "mobile": {
         "selectChapters": "Select",
@@ -159,6 +171,12 @@
     }
   },
   "mainContent.nav.actions.read": "Resume reading",
+  "mainContent.nav.actions.refreshChapters": "Fetch new chapters",
+  "mainContent.nav.actions.linkMetadata": "Link metadata source",
+  "mainContent.nav.refresh.successTitle": "Chapter refresh finished",
+  "mainContent.nav.refresh.successDescription": "{{addedChapters}} new chapters added after checking {{sourcesChecked}} sources ({{sourcesUpdated}} updated)",
+  "mainContent.nav.refresh.errorTitle": "Chapter refresh failed",
+  "mainContent.nav.refresh.errorDescription": "Could not fetch new chapters for this comic",
   "reader": {
     "back": "Back",
     "close": "Close reader",
@@ -179,7 +197,8 @@
   "searchContent": {
     "plugins": {
       "title": "Plugins",
-      "subtitle": "Select sources to search"
+      "subtitle": "Select sources to search",
+      "linkingSubtitle": "Linking data into {{title}}"
     },
     "search": {
       "placeholder": "Search comics, manga, or titles...",
@@ -194,6 +213,9 @@
       "add": "Add to database",
       "adding": "Adding...",
       "added": "Added",
+      "linkToCurrent": "Link to current comic",
+      "linking": "Linking...",
+      "linked": "Linked",
       "expandResult": "Expand result",
       "collapseResult": "Collapse result"
     },

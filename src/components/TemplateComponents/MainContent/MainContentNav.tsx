@@ -1,5 +1,5 @@
 import { FC } from 'react'
-import { Square, SquareCheck, ImagePlay, Languages } from 'lucide-react'
+import { Square, SquareCheck, ImagePlay, Languages, Link2, RefreshCw } from 'lucide-react'
 import { IconTooltipButton } from 'components'
 import {
   DropdownMenu,
@@ -18,6 +18,9 @@ interface MainContentNavProps {
   isSelectionMode: boolean
   onToggleSelectionMode: () => void
   onRead: () => void
+  onLinkMetadata: () => void
+  onRefreshChapters: () => void
+  isRefreshingChapters?: boolean
   readDisabled?: boolean
 }
 
@@ -47,6 +50,9 @@ export const MainContentNav: FC<MainContentNavProps> = ({
   isSelectionMode,
   onToggleSelectionMode,
   onRead,
+  onLinkMetadata,
+  onRefreshChapters,
+  isRefreshingChapters = false,
   readDisabled
 }) => {
   const { t, i18n } = useTranslation()
@@ -107,6 +113,19 @@ export const MainContentNav: FC<MainContentNavProps> = ({
             </DropdownMenuContent>
           </DropdownMenu>
         ) : null}
+        <IconTooltipButton
+          label={t('mainContent.nav.actions.refreshChapters')}
+          className="h-8 w-8 hover:bg-accent/70"
+          onClick={onRefreshChapters}
+          disabled={isRefreshingChapters}
+          icon={<RefreshCw className={`size-4 ${isRefreshingChapters ? 'animate-spin' : ''}`} />}
+        />
+        <IconTooltipButton
+          label={t('mainContent.nav.actions.linkMetadata')}
+          className="h-8 w-8 hover:bg-accent/70"
+          onClick={onLinkMetadata}
+          icon={<Link2 className="size-4" />}
+        />
         <IconTooltipButton
           label={t('mainContent.nav.actions.read')}
           className="h-8 w-8 hover:bg-accent/70"
