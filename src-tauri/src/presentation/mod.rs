@@ -2248,11 +2248,11 @@ fn fetch_pages_for_variant(
         .ok_or_else(|| AppError::Validation(format!("Plugin {plugin_id} has no endpoint")))?;
 
     let response = ureq::post(&format!("{}/getPages", endpoint.trim_end_matches('/')))
-        .set("content-type", "application/json")
-        .send_string(&serde_json::json!({ "chapterSiteId": chapter_site_id }).to_string())
+        .header("content-type", "application/json")
+        .send(serde_json::json!({ "chapterSiteId": chapter_site_id }).to_string())
         .map_err(|error| AppError::infrastructure(format!("Failed to fetch pages from plugin {plugin_id}: {error}")))?;
 
-    let value: Value = serde_json::from_reader(response.into_reader())
+    let value: Value = serde_json::from_reader(response.into_body().into_reader())
         .map_err(|error| AppError::infrastructure(format!("Invalid getPages response from plugin {plugin_id}: {error}")))?;
     Ok(normalize_comic_pages(&value))
 }
@@ -2332,7 +2332,7 @@ fn read_page_bytes_for_archive(comic_dir: &FsPath, page: &crate::domain::ComicPa
         let response = ureq::get(&page.url)
             .call()
             .map_err(|error| AppError::infrastructure(format!("Failed to download page {}: {error}", page.url)))?;
-        let mut reader = response.into_reader();
+        let mut reader = response.into_body().into_reader();
         let mut bytes = Vec::new();
         reader
             .read_to_end(&mut bytes)

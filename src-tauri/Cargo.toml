@@ -22,19 +22,19 @@ tauri = { version = "2", features = ["macos-private-api"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-rusqlite = { version = "0.37", features = ["bundled"] }
-uuid = { version = "1.18", features = ["v4", "serde"] }
+rusqlite = { version = "0.38", features = ["bundled"] }
+uuid = { version = "1.26", features = ["v4", "serde"] }
 axum = "0.8"
 tokio = { version = "1", features = ["net", "rt-multi-thread", "sync"] }
-tower-http = { version = "0.6", features = ["cors"] }
-utoipa = { version = "5", features = ["axum_extras"] }
-utoipa-swagger-ui = { version = "9", features = ["axum"] }
-sea-query = "1.0.0-rc.10"
-sea-query-rusqlite = { version = "0.8.0-rc.15", features = ["with-json"] }
-zip = "7.4.0"
+tower-http = { version = "0.7", features = ["cors"] }
+utoipa = { version = "6", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "10", features = ["axum"] }
+sea-query = "1.0"
+sea-query-rusqlite = { version = "0.8", features = ["with-json"] }
+zip = "8.6"
 mime_guess = "2.0.5"
 tauri-plugin-deep-link = "2"
-ureq = { version = "2.12", default-features = false, features = ["tls"] }
+ureq = { version = "3.4", default-features = false, features = ["rustls"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = "2"

@@ -76,15 +76,17 @@ impl FilesystemComicLibraryStore {
             return Ok(());
         };
 
-        let agent = ureq::AgentBuilder::new()
-            .timeout_connect(std::time::Duration::from_secs(20))
-            .timeout_read(std::time::Duration::from_secs(20))
-            .build();
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .timeout_connect(Some(std::time::Duration::from_secs(20)))
+            .timeout_recv_response(Some(std::time::Duration::from_secs(20)))
+            .timeout_recv_body(Some(std::time::Duration::from_secs(20)))
+            .build()
+            .into();
         let response = agent
             .get(remote_url)
             .call()
             .map_err(|e| AppError::infrastructure(format!("Failed to download cover from {remote_url}: {e}")))?;
-        let status = response.status();
+        let status = response.status().as_u16();
         if !(200..300).contains(&status) {
             return Err(AppError::infrastructure(format!(
                 "Failed to download cover from {remote_url}: HTTP {}",
@@ -92,8 +94,12 @@ impl FilesystemComicLibraryStore {
             )));
         }
 
-        let content_type = response.header("content-type").map(str::to_string);
-        let mut reader = response.into_reader();
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
+        let mut reader = response.into_body().into_reader();
         let mut bytes = Vec::new();
         reader
             .read_to_end(&mut bytes)
